@@ -1,8 +1,11 @@
 package com.springpay.controller;
 
 import com.springpay.dto.request.MerchantRegistrationRequest;
+import com.springpay.dto.response.LoginResponse;
 import com.springpay.dto.response.MerchantRegistrationResponse;
+import com.springpay.entity.Merchant;
 import com.springpay.exception.ErrorResponse;
+import com.springpay.security.ApiKeyAuthenticationToken;
 import com.springpay.service.MerchantService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -15,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -84,5 +88,49 @@ public class MerchantController {
         log.info("Merchant registered successfully with ID: {}", response.getId());
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /**
+     * Gets the authenticated merchant's profile.
+     *
+     * This endpoint requires API key authentication.
+     * Returns the profile of the merchant associated with the provided API key.
+     *
+     * @param authentication the authentication object (injected by Spring Security)
+     * @return ResponseEntity with merchant profile (200 OK)
+     */
+    @GetMapping("/profile")
+    @Operation(
+        summary = "Get merchant profile",
+        description = "Returns the authenticated merchant's profile. Requires API key authentication.",
+        security = @io.swagger.v3.oas.annotations.security.SecurityRequirement(name = "ApiKey")
+    )
+    @ApiResponses({
+        @ApiResponse(
+            responseCode = "200",
+            description = "Profile retrieved successfully",
+            content = @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = LoginResponse.class)
+            )
+        ),
+        @ApiResponse(
+            responseCode = "401",
+            description = "Unauthorized - invalid or missing API key",
+            content = @Content(
+                mediaType = "application/json",
+                schema = @Schema(implementation = ErrorResponse.class)
+            )
+        )
+    })
+    public ResponseEntity<LoginResponse> getProfile(Authentication authentication) {
+        // Extract merchant from authentication token
+        ApiKeyAuthenticationToken authToken = (ApiKeyAuthenticationToken) authentication;
+        Merchant merchant = authToken.getMerchant();
+
+        log.info("Profile request for merchant ID: {}", merchant.getId());
+
+        LoginResponse response = LoginResponse.from(merchant);
+        return ResponseEntity.ok(response);
     }
 }

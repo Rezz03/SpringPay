@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.FilterType;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -28,7 +30,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Uses @WebMvcTest to test the REST API endpoints with MockMvc.
  * Security filters are disabled to test controller logic in isolation.
  */
-@WebMvcTest(MerchantController.class)
+@WebMvcTest(value = MerchantController.class,
+        excludeAutoConfiguration = {org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration.class},
+        excludeFilters = @ComponentScan.Filter(type = FilterType.REGEX, pattern = "com\\.springpay\\.security\\..*"))
 @AutoConfigureMockMvc(addFilters = false)
 class MerchantControllerTest {
 

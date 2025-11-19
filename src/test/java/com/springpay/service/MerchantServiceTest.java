@@ -5,7 +5,9 @@ import com.springpay.dto.response.MerchantRegistrationResponse;
 import com.springpay.entity.Merchant;
 import com.springpay.enums.MerchantStatus;
 import com.springpay.exception.ConflictException;
+import com.springpay.exception.InvalidStateTransitionException;
 import com.springpay.exception.NotFoundException;
+import com.springpay.exception.UnauthorizedException;
 import com.springpay.repository.MerchantRepository;
 import com.springpay.util.ApiKeyGenerator;
 import com.springpay.util.PasswordHasher;
@@ -251,5 +253,282 @@ class MerchantServiceTest {
 
         // Then
         verify(apiKeyGenerator).hashApiKey(plainApiKey);
+    }
+
+    // ==================== Login Tests ====================
+
+    @Test
+    void login_ValidCredentials_ReturnsMerchant() {
+        // Given
+        String email = "merchant@tulipstore.com";
+        String password = "SecureP@ss123";
+        when(merchantRepository.findByEmail(email)).thenReturn(Optional.of(mockMerchant));
+        when(passwordHasher.verifyPassword(password, hashedPassword)).thenReturn(true);
+
+        // When
+        Merchant result = merchantService.login(email, password);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getEmail()).isEqualTo(email);
+        assertThat(result.getName()).isEqualTo("Tulip Store");
+        verify(merchantRepository).findByEmail(email);
+        verify(passwordHasher).verifyPassword(password, hashedPassword);
+    }
+
+    @Test
+    void login_InvalidEmail_ThrowsUnauthorizedException() {
+        // Given
+        String email = "nonexistent@example.com";
+        String password = "SecureP@ss123";
+        when(merchantRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThatThrownBy(() -> merchantService.login(email, password))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid email or password");
+
+        verify(merchantRepository).findByEmail(email);
+        verify(passwordHasher, never()).verifyPassword(anyString(), anyString());
+    }
+
+    @Test
+    void login_InvalidPassword_ThrowsUnauthorizedException() {
+        // Given
+        String email = "merchant@tulipstore.com";
+        String password = "WrongPassword123!";
+        when(merchantRepository.findByEmail(email)).thenReturn(Optional.of(mockMerchant));
+        when(passwordHasher.verifyPassword(password, hashedPassword)).thenReturn(false);
+
+        // When/Then
+        assertThatThrownBy(() -> merchantService.login(email, password))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessage("Invalid email or password");
+
+        verify(merchantRepository).findByEmail(email);
+        verify(passwordHasher).verifyPassword(password, hashedPassword);
+    }
+
+    @Test
+    void login_ValidCredentials_VerifiesPasswordCorrectly() {
+        // Given
+        String email = "merchant@tulipstore.com";
+        String password = "SecureP@ss123";
+        when(merchantRepository.findByEmail(email)).thenReturn(Optional.of(mockMerchant));
+        when(passwordHasher.verifyPassword(password, hashedPassword)).thenReturn(true);
+
+        // When
+        merchantService.login(email, password);
+
+        // Then
+        verify(passwordHasher).verifyPassword(password, mockMerchant.getPasswordHash());
+    }
+
+    @Test
+    void login_MerchantNotFound_DoesNotCallPasswordVerifier() {
+        // Given
+        String email = "nonexistent@example.com";
+        String password = "SecureP@ss123";
+        when(merchantRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThatThrownBy(() -> merchantService.login(email, password))
+                .isInstanceOf(UnauthorizedException.class);
+
+        // Verify password hasher is never called if merchant doesn't exist
+        verify(passwordHasher, never()).verifyPassword(anyString(), anyString());
+    }
+
+    // ==================== Merchant Approval Tests ====================
+
+    @Test
+    void approveMerchant_PendingMerchant_ApprovesMerchant() {
+        // Given
+        Long merchantId = 1L;
+        Merchant pendingMerchant = Merchant.builder()
+                .id(merchantId)
+                .name("Test Store")
+                .email("test@example.com")
+                .status(MerchantStatus.PENDING)
+                .build();
+
+        Merchant approvedMerchant = Merchant.builder()
+                .id(merchantId)
+                .name("Test Store")
+                .email("test@example.com")
+                .status(MerchantStatus.APPROVED)
+                .build();
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(pendingMerchant));
+        when(merchantRepository.save(any(Merchant.class))).thenReturn(approvedMerchant);
+
+        // When
+        Merchant result = merchantService.approveMerchant(merchantId);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(MerchantStatus.APPROVED);
+        verify(merchantRepository).findById(merchantId);
+        verify(merchantRepository).save(pendingMerchant);
+    }
+
+    @Test
+    void approveMerchant_AlreadyApprovedMerchant_ThrowsInvalidStateTransitionException() {
+        // Given
+        Long merchantId = 1L;
+        Merchant approvedMerchant = Merchant.builder()
+                .id(merchantId)
+                .status(MerchantStatus.APPROVED)
+                .build();
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(approvedMerchant));
+
+        // When/Then
+        assertThatThrownBy(() -> merchantService.approveMerchant(merchantId))
+                .isInstanceOf(InvalidStateTransitionException.class)
+                .hasMessageContaining("Only merchants with PENDING status can be approved");
+
+        verify(merchantRepository).findById(merchantId);
+        verify(merchantRepository, never()).save(any(Merchant.class));
+    }
+
+    @Test
+    void approveMerchant_NonExistentMerchant_ThrowsNotFoundException() {
+        // Given
+        Long merchantId = 999L;
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThatThrownBy(() -> merchantService.approveMerchant(merchantId))
+                .isInstanceOf(NotFoundException.class);
+
+        verify(merchantRepository).findById(merchantId);
+        verify(merchantRepository, never()).save(any(Merchant.class));
+    }
+
+    // ==================== Merchant Rejection Tests ====================
+
+    @Test
+    void rejectMerchant_PendingMerchant_RejectsMerchant() {
+        // Given
+        Long merchantId = 1L;
+        String reason = "Failed background check";
+        Merchant pendingMerchant = Merchant.builder()
+                .id(merchantId)
+                .name("Test Store")
+                .email("test@example.com")
+                .status(MerchantStatus.PENDING)
+                .build();
+
+        Merchant rejectedMerchant = Merchant.builder()
+                .id(merchantId)
+                .name("Test Store")
+                .email("test@example.com")
+                .status(MerchantStatus.REJECTED)
+                .build();
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(pendingMerchant));
+        when(merchantRepository.save(any(Merchant.class))).thenReturn(rejectedMerchant);
+
+        // When
+        Merchant result = merchantService.rejectMerchant(merchantId, reason);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(MerchantStatus.REJECTED);
+        verify(merchantRepository).findById(merchantId);
+        verify(merchantRepository).save(pendingMerchant);
+    }
+
+    @Test
+    void rejectMerchant_AlreadyApprovedMerchant_ThrowsInvalidStateTransitionException() {
+        // Given
+        Long merchantId = 1L;
+        String reason = "Some reason";
+        Merchant approvedMerchant = Merchant.builder()
+                .id(merchantId)
+                .status(MerchantStatus.APPROVED)
+                .build();
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(approvedMerchant));
+
+        // When/Then
+        assertThatThrownBy(() -> merchantService.rejectMerchant(merchantId, reason))
+                .isInstanceOf(InvalidStateTransitionException.class)
+                .hasMessageContaining("Only merchants with PENDING status can be rejected");
+
+        verify(merchantRepository).findById(merchantId);
+        verify(merchantRepository, never()).save(any(Merchant.class));
+    }
+
+    // ==================== Merchant Suspension Tests ====================
+
+    @Test
+    void suspendMerchant_ApprovedMerchant_SuspendsMerchant() {
+        // Given
+        Long merchantId = 1L;
+        String reason = "Fraudulent activity detected";
+        Merchant approvedMerchant = Merchant.builder()
+                .id(merchantId)
+                .name("Test Store")
+                .email("test@example.com")
+                .status(MerchantStatus.APPROVED)
+                .build();
+
+        Merchant suspendedMerchant = Merchant.builder()
+                .id(merchantId)
+                .name("Test Store")
+                .email("test@example.com")
+                .status(MerchantStatus.SUSPENDED)
+                .build();
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(approvedMerchant));
+        when(merchantRepository.save(any(Merchant.class))).thenReturn(suspendedMerchant);
+
+        // When
+        Merchant result = merchantService.suspendMerchant(merchantId, reason);
+
+        // Then
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(MerchantStatus.SUSPENDED);
+        verify(merchantRepository).findById(merchantId);
+        verify(merchantRepository).save(approvedMerchant);
+    }
+
+    @Test
+    void suspendMerchant_PendingMerchant_ThrowsInvalidStateTransitionException() {
+        // Given
+        Long merchantId = 1L;
+        String reason = "Some reason";
+        Merchant pendingMerchant = Merchant.builder()
+                .id(merchantId)
+                .status(MerchantStatus.PENDING)
+                .build();
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(pendingMerchant));
+
+        // When/Then
+        assertThatThrownBy(() -> merchantService.suspendMerchant(merchantId, reason))
+                .isInstanceOf(InvalidStateTransitionException.class)
+                .hasMessageContaining("Only merchants with APPROVED status can be suspended");
+
+        verify(merchantRepository).findById(merchantId);
+        verify(merchantRepository, never()).save(any(Merchant.class));
+    }
+
+    @Test
+    void suspendMerchant_NonExistentMerchant_ThrowsNotFoundException() {
+        // Given
+        Long merchantId = 999L;
+        String reason = "Some reason";
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThatThrownBy(() -> merchantService.suspendMerchant(merchantId, reason))
+                .isInstanceOf(NotFoundException.class);
+
+        verify(merchantRepository).findById(merchantId);
+        verify(merchantRepository, never()).save(any(Merchant.class));
     }
 }

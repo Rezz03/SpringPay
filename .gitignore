@@ -93,3 +93,6 @@ temp/
 # Package Files
 *.tar.gz
 *.zip
+
+# Documentation
+documentation/**/*.md

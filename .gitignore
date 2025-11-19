@@ -1,0 +1,95 @@
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# VS Code
+.vscode/
+
+# NetBeans
+nbproject/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+
+# Spring Boot
+spring-boot-starter-*.jar
+
+# Application Logs
+logs/
+*.log
+*.log.*
+
+# OS Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Database
+*.db
+*.sqlite
+*.h2.db
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Sensitive Files
+application-prod.properties
+application-secrets.properties
+*.pem
+*.key
+*.crt
+
+# Docker
+.dockerignore
+
+# Build artifacts
+build/
+dist/
+
+# Test coverage
+coverage/
+.jacoco/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*~
+
+# Package Files
+*.tar.gz
+*.zip

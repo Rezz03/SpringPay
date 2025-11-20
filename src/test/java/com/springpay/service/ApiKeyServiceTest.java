@@ -1,31 +1,42 @@
 package com.springpay.service;
 
+import com.springpay.entity.ApiKey;
 import com.springpay.entity.Merchant;
 import com.springpay.enums.MerchantStatus;
+import com.springpay.exception.ForbiddenException;
+import com.springpay.exception.NotFoundException;
 import com.springpay.exception.UnauthorizedException;
+import com.springpay.repository.ApiKeyRepository;
 import com.springpay.repository.MerchantRepository;
 import com.springpay.util.ApiKeyGenerator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 /**
  * Unit tests for ApiKeyService.
- * Tests API key validation and extraction logic.
+ * Tests API key validation, generation, revocation, and listing logic.
  */
 @ExtendWith(MockitoExtension.class)
 class ApiKeyServiceTest {
+
+    @Mock
+    private ApiKeyRepository apiKeyRepository;
 
     @Mock
     private MerchantRepository merchantRepository;
@@ -89,8 +100,15 @@ class ApiKeyServiceTest {
     @Test
     void validateApiKey_ValidKeyAndApprovedMerchant_ReturnsMerchant() {
         // Given
+        ApiKey apiKey = ApiKey.builder()
+                .id(1L)
+                .merchant(approvedMerchant)
+                .keyHash(hashedApiKey)
+                .revoked(false)
+                .build();
+
         when(apiKeyGenerator.hashApiKey(plainApiKey)).thenReturn(hashedApiKey);
-        when(merchantRepository.findByApiKeyHash(hashedApiKey)).thenReturn(Optional.of(approvedMerchant));
+        when(apiKeyRepository.findByKeyHash(hashedApiKey)).thenReturn(Optional.of(apiKey));
 
         // When
         Merchant result = apiKeyService.validateApiKey(plainApiKey);
@@ -102,22 +120,23 @@ class ApiKeyServiceTest {
         assertThat(result.getStatus()).isEqualTo(MerchantStatus.APPROVED);
 
         verify(apiKeyGenerator).hashApiKey(plainApiKey);
-        verify(merchantRepository).findByApiKeyHash(hashedApiKey);
+        verify(apiKeyRepository).findByKeyHash(hashedApiKey);
+        verify(apiKeyRepository).save(any(ApiKey.class)); // Verify last used timestamp updated
     }
 
     @Test
     void validateApiKey_InvalidKey_ThrowsUnauthorizedException() {
         // Given
         when(apiKeyGenerator.hashApiKey(plainApiKey)).thenReturn(hashedApiKey);
-        when(merchantRepository.findByApiKeyHash(hashedApiKey)).thenReturn(Optional.empty());
+        when(apiKeyRepository.findByKeyHash(hashedApiKey)).thenReturn(Optional.empty());
 
         // When/Then
         assertThatThrownBy(() -> apiKeyService.validateApiKey(plainApiKey))
                 .isInstanceOf(UnauthorizedException.class)
-                .hasMessage("Invalid or missing API key");
+                .hasMessageContaining("Invalid or missing API key");
 
         verify(apiKeyGenerator).hashApiKey(plainApiKey);
-        verify(merchantRepository).findByApiKeyHash(hashedApiKey);
+        verify(apiKeyRepository).findByKeyHash(hashedApiKey);
     }
 
     @Test
@@ -156,31 +175,67 @@ class ApiKeyServiceTest {
     @Test
     void validateApiKey_PendingMerchant_ThrowsUnauthorizedException() {
         // Given
+        ApiKey apiKey = ApiKey.builder()
+                .id(2L)
+                .merchant(pendingMerchant)
+                .keyHash(hashedApiKey)
+                .revoked(false)
+                .build();
+
         when(apiKeyGenerator.hashApiKey(plainApiKey)).thenReturn(hashedApiKey);
-        when(merchantRepository.findByApiKeyHash(hashedApiKey)).thenReturn(Optional.of(pendingMerchant));
+        when(apiKeyRepository.findByKeyHash(hashedApiKey)).thenReturn(Optional.of(apiKey));
 
         // When/Then
         assertThatThrownBy(() -> apiKeyService.validateApiKey(plainApiKey))
                 .isInstanceOf(UnauthorizedException.class)
-                .hasMessage("Merchant account is not approved");
+                .hasMessageContaining("Merchant account is not approved");
 
         verify(apiKeyGenerator).hashApiKey(plainApiKey);
-        verify(merchantRepository).findByApiKeyHash(hashedApiKey);
+        verify(apiKeyRepository).findByKeyHash(hashedApiKey);
     }
 
     @Test
     void validateApiKey_SuspendedMerchant_ThrowsUnauthorizedException() {
         // Given
+        ApiKey apiKey = ApiKey.builder()
+                .id(3L)
+                .merchant(suspendedMerchant)
+                .keyHash(hashedApiKey)
+                .revoked(false)
+                .build();
+
         when(apiKeyGenerator.hashApiKey(plainApiKey)).thenReturn(hashedApiKey);
-        when(merchantRepository.findByApiKeyHash(hashedApiKey)).thenReturn(Optional.of(suspendedMerchant));
+        when(apiKeyRepository.findByKeyHash(hashedApiKey)).thenReturn(Optional.of(apiKey));
 
         // When/Then
         assertThatThrownBy(() -> apiKeyService.validateApiKey(plainApiKey))
                 .isInstanceOf(UnauthorizedException.class)
-                .hasMessage("Merchant account is not approved");
+                .hasMessageContaining("Merchant account is not approved");
 
         verify(apiKeyGenerator).hashApiKey(plainApiKey);
-        verify(merchantRepository).findByApiKeyHash(hashedApiKey);
+        verify(apiKeyRepository).findByKeyHash(hashedApiKey);
+    }
+
+    @Test
+    void validateApiKey_RevokedKey_ThrowsUnauthorizedException() {
+        // Given
+        ApiKey apiKey = ApiKey.builder()
+                .id(1L)
+                .merchant(approvedMerchant)
+                .keyHash(hashedApiKey)
+                .revoked(true) // Revoked
+                .build();
+
+        when(apiKeyGenerator.hashApiKey(plainApiKey)).thenReturn(hashedApiKey);
+        when(apiKeyRepository.findByKeyHash(hashedApiKey)).thenReturn(Optional.of(apiKey));
+
+        // When/Then
+        assertThatThrownBy(() -> apiKeyService.validateApiKey(plainApiKey))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("API key has been revoked");
+
+        verify(apiKeyGenerator).hashApiKey(plainApiKey);
+        verify(apiKeyRepository).findByKeyHash(hashedApiKey);
     }
 
     // ==================== extractApiKey Tests ====================
@@ -260,8 +315,15 @@ class ApiKeyServiceTest {
     void authenticateFromHeader_ValidHeader_ReturnsMerchant() {
         // Given
         String authHeader = "ApiKey " + plainApiKey;
+        ApiKey apiKey = ApiKey.builder()
+                .id(1L)
+                .merchant(approvedMerchant)
+                .keyHash(hashedApiKey)
+                .revoked(false)
+                .build();
+
         when(apiKeyGenerator.hashApiKey(plainApiKey)).thenReturn(hashedApiKey);
-        when(merchantRepository.findByApiKeyHash(hashedApiKey)).thenReturn(Optional.of(approvedMerchant));
+        when(apiKeyRepository.findByKeyHash(hashedApiKey)).thenReturn(Optional.of(apiKey));
 
         // When
         Merchant result = apiKeyService.authenticateFromHeader(authHeader);
@@ -287,11 +349,261 @@ class ApiKeyServiceTest {
         // Given
         String authHeader = "ApiKey " + plainApiKey;
         when(apiKeyGenerator.hashApiKey(plainApiKey)).thenReturn(hashedApiKey);
-        when(merchantRepository.findByApiKeyHash(hashedApiKey)).thenReturn(Optional.empty());
+        when(apiKeyRepository.findByKeyHash(hashedApiKey)).thenReturn(Optional.empty());
 
         // When/Then
         assertThatThrownBy(() -> apiKeyService.authenticateFromHeader(authHeader))
                 .isInstanceOf(UnauthorizedException.class)
-                .hasMessage("Invalid or missing API key");
+                .hasMessageContaining("Invalid or missing API key");
+    }
+
+    // ==================== generateAdditionalKey Tests ====================
+
+    @Test
+    void generateAdditionalKey_ApprovedMerchant_ReturnsApiKey() {
+        // Given
+        Long merchantId = 1L;
+        String label = "Production API Key";
+        String plainTextKey = "sk_live_generated123";
+        String keyHash = "hash_of_generated_key";
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(approvedMerchant));
+        when(apiKeyGenerator.generateApiKey()).thenReturn(plainTextKey);
+        when(apiKeyGenerator.hashApiKey(plainTextKey)).thenReturn(keyHash);
+
+        ApiKey savedApiKey = ApiKey.builder()
+                .id(10L)
+                .merchant(approvedMerchant)
+                .keyHash(keyHash)
+                .label(label)
+                .revoked(false)
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        when(apiKeyRepository.save(any(ApiKey.class))).thenReturn(savedApiKey);
+
+        // When
+        Object[] result = apiKeyService.generateAdditionalKey(merchantId, label);
+
+        // Then
+        assertThat(result).hasSize(2);
+        assertThat(result[0]).isInstanceOf(ApiKey.class);
+        assertThat(result[1]).isEqualTo(plainTextKey);
+
+        ApiKey apiKey = (ApiKey) result[0];
+        assertThat(apiKey.getId()).isEqualTo(10L);
+        assertThat(apiKey.getLabel()).isEqualTo(label);
+        assertThat(apiKey.getRevoked()).isFalse();
+
+        verify(merchantRepository).findById(merchantId);
+        verify(apiKeyGenerator).generateApiKey();
+        verify(apiKeyGenerator).hashApiKey(plainTextKey);
+        verify(apiKeyRepository).save(any(ApiKey.class));
+    }
+
+    @Test
+    void generateAdditionalKey_MerchantNotFound_ThrowsNotFoundException() {
+        // Given
+        Long merchantId = 999L;
+        String label = "Production API Key";
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThatThrownBy(() -> apiKeyService.generateAdditionalKey(merchantId, label))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Merchant not found");
+
+        verify(merchantRepository).findById(merchantId);
+        verify(apiKeyGenerator, never()).generateApiKey();
+    }
+
+    @Test
+    void generateAdditionalKey_PendingMerchant_ThrowsUnauthorizedException() {
+        // Given
+        Long merchantId = 2L;
+        String label = "Production API Key";
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(pendingMerchant));
+
+        // When/Then
+        assertThatThrownBy(() -> apiKeyService.generateAdditionalKey(merchantId, label))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("approved merchants can generate API keys");
+
+        verify(merchantRepository).findById(merchantId);
+        verify(apiKeyGenerator, never()).generateApiKey();
+    }
+
+    @Test
+    void generateAdditionalKey_SuspendedMerchant_ThrowsUnauthorizedException() {
+        // Given
+        Long merchantId = 3L;
+        String label = "Production API Key";
+
+        when(merchantRepository.findById(merchantId)).thenReturn(Optional.of(suspendedMerchant));
+
+        // When/Then
+        assertThatThrownBy(() -> apiKeyService.generateAdditionalKey(merchantId, label))
+                .isInstanceOf(UnauthorizedException.class)
+                .hasMessageContaining("approved merchants can generate API keys");
+
+        verify(merchantRepository).findById(merchantId);
+        verify(apiKeyGenerator, never()).generateApiKey();
+    }
+
+    // ==================== revokeApiKey Tests ====================
+
+    @Test
+    void revokeApiKey_ValidKeyAndOwnership_RevokesSuccessfully() {
+        // Given
+        Long merchantId = 1L;
+        Long keyId = 10L;
+
+        ApiKey apiKey = ApiKey.builder()
+                .id(keyId)
+                .merchant(approvedMerchant)
+                .keyHash("some_hash")
+                .label("Test Key")
+                .revoked(false)
+                .build();
+
+        when(apiKeyRepository.findById(keyId)).thenReturn(Optional.of(apiKey));
+
+        // When
+        apiKeyService.revokeApiKey(merchantId, keyId);
+
+        // Then
+        ArgumentCaptor<ApiKey> captor = ArgumentCaptor.forClass(ApiKey.class);
+        verify(apiKeyRepository).save(captor.capture());
+        assertThat(captor.getValue().getRevoked()).isTrue();
+    }
+
+    @Test
+    void revokeApiKey_AlreadyRevoked_IdempotentSuccess() {
+        // Given
+        Long merchantId = 1L;
+        Long keyId = 10L;
+
+        ApiKey apiKey = ApiKey.builder()
+                .id(keyId)
+                .merchant(approvedMerchant)
+                .keyHash("some_hash")
+                .label("Test Key")
+                .revoked(true) // Already revoked
+                .build();
+
+        when(apiKeyRepository.findById(keyId)).thenReturn(Optional.of(apiKey));
+
+        // When
+        apiKeyService.revokeApiKey(merchantId, keyId);
+
+        // Then - should not save again
+        verify(apiKeyRepository, never()).save(any(ApiKey.class));
+    }
+
+    @Test
+    void revokeApiKey_KeyNotFound_ThrowsNotFoundException() {
+        // Given
+        Long merchantId = 1L;
+        Long keyId = 999L;
+
+        when(apiKeyRepository.findById(keyId)).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThatThrownBy(() -> apiKeyService.revokeApiKey(merchantId, keyId))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("API key not found");
+
+        verify(apiKeyRepository).findById(keyId);
+    }
+
+    @Test
+    void revokeApiKey_WrongMerchant_ThrowsForbiddenException() {
+        // Given
+        Long merchantId = 1L;
+        Long keyId = 10L;
+
+        Merchant differentMerchant = Merchant.builder()
+                .id(999L)
+                .name("Different Merchant")
+                .build();
+
+        ApiKey apiKey = ApiKey.builder()
+                .id(keyId)
+                .merchant(differentMerchant)
+                .keyHash("some_hash")
+                .label("Test Key")
+                .revoked(false)
+                .build();
+
+        when(apiKeyRepository.findById(keyId)).thenReturn(Optional.of(apiKey));
+
+        // When/Then
+        assertThatThrownBy(() -> apiKeyService.revokeApiKey(merchantId, keyId))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("do not have permission");
+
+        verify(apiKeyRepository).findById(keyId);
+        verify(apiKeyRepository, never()).save(any(ApiKey.class));
+    }
+
+    // ==================== listApiKeys Tests ====================
+
+    @Test
+    void listApiKeys_ReturnsAllKeys() {
+        // Given
+        Long merchantId = 1L;
+
+        ApiKey key1 = ApiKey.builder()
+                .id(1L)
+                .merchant(approvedMerchant)
+                .label("Production Key")
+                .revoked(false)
+                .build();
+
+        ApiKey key2 = ApiKey.builder()
+                .id(2L)
+                .merchant(approvedMerchant)
+                .label("Test Key")
+                .revoked(true)
+                .build();
+
+        List<ApiKey> keys = Arrays.asList(key1, key2);
+        when(apiKeyRepository.findByMerchantIdOrderByCreatedAtDesc(merchantId)).thenReturn(keys);
+
+        // When
+        List<ApiKey> result = apiKeyService.listApiKeys(merchantId);
+
+        // Then
+        assertThat(result).hasSize(2);
+        assertThat(result).containsExactly(key1, key2);
+
+        verify(apiKeyRepository).findByMerchantIdOrderByCreatedAtDesc(merchantId);
+    }
+
+    @Test
+    void listActiveApiKeys_ReturnsOnlyActiveKeys() {
+        // Given
+        Long merchantId = 1L;
+
+        ApiKey activeKey = ApiKey.builder()
+                .id(1L)
+                .merchant(approvedMerchant)
+                .label("Production Key")
+                .revoked(false)
+                .build();
+
+        List<ApiKey> keys = Arrays.asList(activeKey);
+        when(apiKeyRepository.findByMerchantIdAndRevoked(merchantId, false)).thenReturn(keys);
+
+        // When
+        List<ApiKey> result = apiKeyService.listActiveApiKeys(merchantId);
+
+        // Then
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getRevoked()).isFalse();
+
+        verify(apiKeyRepository).findByMerchantIdAndRevoked(merchantId, false);
     }
 }

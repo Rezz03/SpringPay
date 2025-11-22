@@ -351,10 +351,6 @@ Future enhancements planned:
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Contact
-
-**Author**: Perez
-**Project Link**: https://github.com/yourusername/springpay
 
 ---
 

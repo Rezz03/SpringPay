@@ -1,7 +1,6 @@
 # SpringPay Payment Gateway
 
-A modern, Spring Boot-based payment gateway API for processing payments, managing merchants, and handling refunds. This project is designed as a portfolio showcase demonstrating backend engineering best practices, modular architecture, and production-ready code.
-
+A modern, Spring Boot-based payment gateway API for processing payments, managing merchants, and handling refunds. 
 ## Features
 
 - **Merchant Management**: Registration, authentication, and API key generation
@@ -348,15 +347,7 @@ Future enhancements planned:
 - [ ] Microservices architecture
 - [ ] Cloud deployment (AWS/GCP)
 
-## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Contact
-
-**Author**: Perez
-**Email**: support@springpay.com
-**Project Link**: https://github.com/yourusername/springpay
 
 ---
 

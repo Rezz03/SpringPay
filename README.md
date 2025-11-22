@@ -347,9 +347,6 @@ Future enhancements planned:
 - [ ] Microservices architecture
 - [ ] Cloud deployment (AWS/GCP)
 
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
 
 
 ---
